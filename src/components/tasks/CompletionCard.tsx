@@ -49,11 +49,15 @@ export function CompletionCard({ completion, onApprove, onReject }: CompletionCa
         <div>
           <p className="font-bold text-gray-800 text-sm">{completion.task.title}</p>
           <div className="flex gap-2 mt-0.5">
-            {completion.task.stars_reward > 0 && (
-              <span className="text-xs text-amber-600 font-bold">⭐ +{completion.task.stars_reward}</span>
+            {(completion.stars_reward ?? completion.task.stars_reward) > 0 && (
+              <span className="text-xs text-amber-600 font-bold">
+                ⭐ +{completion.stars_reward ?? completion.task.stars_reward}
+              </span>
             )}
-            {completion.task.magic_stars_reward > 0 && (
-              <span className="text-xs text-violet-600 font-bold">🌟 +{completion.task.magic_stars_reward}</span>
+            {(completion.magic_stars_reward ?? completion.task.magic_stars_reward) > 0 && (
+              <span className="text-xs text-violet-600 font-bold">
+                🌟 +{completion.magic_stars_reward ?? completion.task.magic_stars_reward}
+              </span>
             )}
           </div>
         </div>

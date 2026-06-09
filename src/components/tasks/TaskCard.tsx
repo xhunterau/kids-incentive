@@ -45,6 +45,11 @@ export function TaskCard({ task, onSubmit }: TaskCardProps) {
           <div className="flex items-center gap-2 flex-wrap">
             <h3 className="font-black text-gray-800 text-base">{task.title}</h3>
             {cfg.badge}
+            {task.recurrence === 'milestone' && task.pendingCount > 0 && (
+              <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-xs font-bold">
+                审批中 {task.pendingCount} 次
+              </span>
+            )}
             {task.recurrence === 'milestone' && task.completionCount > 0 && (
               <span className="px-2 py-0.5 rounded-full bg-yellow-50 text-yellow-700 text-xs font-bold">
                 🏆 {task.completionCount} 次

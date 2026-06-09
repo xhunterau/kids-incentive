@@ -273,11 +273,13 @@ export type Database = {
           child_id: string
           created_at: string
           id: string
+          magic_stars_reward: number | null
           note: string | null
           proof_url: string | null
           reject_reason: string | null
           reviewed_at: string | null
           reviewed_by: string | null
+          stars_reward: number | null
           status: Database["public"]["Enums"]["completion_status"]
           task_id: string
         }
@@ -285,11 +287,13 @@ export type Database = {
           child_id: string
           created_at?: string
           id?: string
+          magic_stars_reward?: number | null
           note?: string | null
           proof_url?: string | null
           reject_reason?: string | null
           reviewed_at?: string | null
           reviewed_by?: string | null
+          stars_reward?: number | null
           status?: Database["public"]["Enums"]["completion_status"]
           task_id: string
         }
@@ -297,11 +301,13 @@ export type Database = {
           child_id?: string
           created_at?: string
           id?: string
+          magic_stars_reward?: number | null
           note?: string | null
           proof_url?: string | null
           reject_reason?: string | null
           reviewed_at?: string | null
           reviewed_by?: string | null
+          stars_reward?: number | null
           status?: Database["public"]["Enums"]["completion_status"]
           task_id?: string
         }

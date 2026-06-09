@@ -7,11 +7,18 @@ export type TaskDisplayStatus = 'todo' | 'pending' | 'done'
 export interface TaskWithStatus extends Task {
   completion: TaskCompletion | null
   displayStatus: TaskDisplayStatus
-  completionCount: number  // approved completions total (used by milestone tasks)
+  completionCount: number  // approved completions total
+  pendingCount: number     // pending completions total (milestone tasks)
+}
+
+export interface MilestoneCompletion {
+  completion: TaskCompletion
+  task: Task
 }
 
 export function useChildTasks(childId: string) {
   const [tasks, setTasks] = useState<TaskWithStatus[]>([])
+  const [milestoneCompletions, setMilestoneCompletions] = useState<MilestoneCompletion[]>([])
   const [loading, setLoading] = useState(true)
 
   const fetchTasks = useCallback(async () => {
@@ -26,6 +33,7 @@ export function useChildTasks(childId: string) {
 
     if (!tasksData || tasksData.length === 0) {
       setTasks([])
+      setMilestoneCompletions([])
       setLoading(false)
       return
     }
@@ -38,35 +46,46 @@ export function useChildTasks(childId: string) {
       .in('task_id', taskIds)
       .order('created_at', { ascending: false })
 
-    // Keep only latest completion per task; also count approved completions
+    const taskMap = new Map(tasksData.map(t => [t.id, t]))
     const completionMap = new Map<string, TaskCompletion>()
     const approvedCountMap = new Map<string, number>()
+    const pendingCountMap = new Map<string, number>()
+    const milestoneCompletionsArr: MilestoneCompletion[] = []
+
     completions?.forEach(c => {
       if (!completionMap.has(c.task_id)) completionMap.set(c.task_id, c)
       if (c.status === 'approved') {
         approvedCountMap.set(c.task_id, (approvedCountMap.get(c.task_id) ?? 0) + 1)
+      }
+      if (c.status === 'pending') {
+        pendingCountMap.set(c.task_id, (pendingCountMap.get(c.task_id) ?? 0) + 1)
+      }
+      const task = taskMap.get(c.task_id)
+      if (task?.recurrence === 'milestone') {
+        milestoneCompletionsArr.push({ completion: c, task })
       }
     })
 
     const enriched: TaskWithStatus[] = tasksData.map(task => {
       const completion = completionMap.get(task.id) ?? null
       const completionCount = approvedCountMap.get(task.id) ?? 0
+      const pendingCount = pendingCountMap.get(task.id) ?? 0
       let displayStatus: TaskDisplayStatus = 'todo'
-      if (completion?.status === 'pending') {
-        displayStatus = 'pending'
-      } else if (completion?.status === 'approved') {
-        displayStatus = 'done'
+      if (task.recurrence !== 'milestone') {
+        if (completion?.status === 'pending') displayStatus = 'pending'
+        else if (completion?.status === 'approved') displayStatus = 'done'
       }
-      return { ...task, completion, displayStatus, completionCount }
+      return { ...task, completion, displayStatus, completionCount, pendingCount }
     })
 
     setTasks(enriched)
+    setMilestoneCompletions(milestoneCompletionsArr)
     setLoading(false)
   }, [childId])
 
   useEffect(() => { fetchTasks() }, [fetchTasks])
 
-  return { tasks, loading, refetch: fetchTasks }
+  return { tasks, milestoneCompletions, loading, refetch: fetchTasks }
 }
 
 export interface TaskFormValues {

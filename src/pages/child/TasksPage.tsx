@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { useAuth } from '../../hooks/useAuth'
-import { useChildTasks, type TaskWithStatus } from '../../hooks/useTasks'
+import { useChildTasks, type TaskWithStatus, type MilestoneCompletion } from '../../hooks/useTasks'
 import { useSubmitCompletion } from '../../hooks/useCompletions'
 import { TaskCard } from '../../components/tasks/TaskCard'
+import { MilestoneCompletionCard } from '../../components/tasks/MilestoneCompletionCard'
 import { BottomSheet } from '../../components/ui/BottomSheet'
 
 type ActiveTab = 'todo' | 'pending' | 'done'
@@ -12,12 +13,13 @@ const PAGE_SIZE = 10
 
 export default function ChildTasksPage() {
   const { profile } = useAuth()
-  const { tasks, loading, refetch } = useChildTasks(profile!.id)
+  const { tasks, milestoneCompletions, loading, refetch } = useChildTasks(profile!.id)
   const { submit } = useSubmitCompletion()
 
   const [activeTab, setActiveTab] = useState<ActiveTab>('todo')
   const [selectedTask, setSelectedTask] = useState<TaskWithStatus | null>(null)
   const [note, setNote] = useState('')
+  const [quantity, setQuantity] = useState(1)
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [doneFilter, setDoneFilter] = useState<DoneFilter>('1m')
@@ -27,6 +29,9 @@ export default function ChildTasksPage() {
   const pendingTasks = tasks.filter(t => t.displayStatus === 'pending')
   const allDoneTasks = tasks.filter(t => t.displayStatus === 'done')
 
+  const pendingMilestones = milestoneCompletions.filter(m => m.completion.status === 'pending')
+  const allDoneMilestones = milestoneCompletions.filter(m => m.completion.status === 'approved')
+
   const now = Date.now()
   const cutoffs: Record<DoneFilter, number> = {
     '1m':    now - 30  * 24 * 60 * 60 * 1000,
@@ -34,14 +39,31 @@ export default function ChildTasksPage() {
     '1y':    now - 365 * 24 * 60 * 60 * 1000,
     'older': 0,
   }
-  const filteredDoneTasks = allDoneTasks.filter(t => {
-    const ts = new Date(t.completion!.created_at).getTime()
-    return doneFilter === 'older' ? ts < cutoffs['1y'] : ts >= cutoffs[doneFilter]
-  })
-  const olderTotalPages = Math.ceil(filteredDoneTasks.length / PAGE_SIZE)
-  const pagedDoneTasks = doneFilter === 'older'
-    ? filteredDoneTasks.slice(olderPage * PAGE_SIZE, (olderPage + 1) * PAGE_SIZE)
-    : filteredDoneTasks
+
+  const filterByTime = (ts: number) =>
+    doneFilter === 'older' ? ts < cutoffs['1y'] : ts >= cutoffs[doneFilter]
+
+  const filteredDoneTasks = allDoneTasks.filter(t =>
+    filterByTime(new Date(t.completion!.created_at).getTime())
+  )
+  const filteredDoneMilestones = allDoneMilestones.filter(m =>
+    filterByTime(new Date(m.completion.created_at).getTime())
+  )
+
+  // Interleave done tasks and milestone completions sorted by date desc
+  type DoneItem =
+    | { kind: 'task'; data: TaskWithStatus }
+    | { kind: 'milestone'; data: MilestoneCompletion }
+
+  const allDoneItems: DoneItem[] = [
+    ...filteredDoneTasks.map(t => ({ kind: 'task' as const, data: t, ts: new Date(t.completion!.created_at).getTime() })),
+    ...filteredDoneMilestones.map(m => ({ kind: 'milestone' as const, data: m, ts: new Date(m.completion.created_at).getTime() })),
+  ].sort((a, b) => b.ts - a.ts)
+
+  const olderTotalPages = Math.ceil(allDoneItems.length / PAGE_SIZE)
+  const pagedDoneItems = doneFilter === 'older'
+    ? allDoneItems.slice(olderPage * PAGE_SIZE, (olderPage + 1) * PAGE_SIZE)
+    : allDoneItems
 
   const handleDoneFilterChange = (f: DoneFilter) => {
     setDoneFilter(f)
@@ -51,6 +73,7 @@ export default function ChildTasksPage() {
   const handleClose = () => {
     setSelectedTask(null)
     setNote('')
+    setQuantity(1)
     setSubmitError(null)
   }
 
@@ -58,13 +81,17 @@ export default function ChildTasksPage() {
     if (!selectedTask || !profile) return
     setSubmitting(true)
     setSubmitError(null)
-    const { error } = await submit(selectedTask.id, profile.id, note)
+    const isMilestone = selectedTask.recurrence === 'milestone'
+    const opts = isMilestone && quantity > 1 ? {
+      starsReward: selectedTask.stars_reward > 0 ? selectedTask.stars_reward * quantity : null,
+      magicStarsReward: selectedTask.magic_stars_reward > 0 ? selectedTask.magic_stars_reward * quantity : null,
+    } : {}
+    const { error } = await submit(selectedTask.id, profile.id, note, opts)
     if (error) {
       setSubmitting(false)
       setSubmitError(error.message)
       return
     }
-    // Milestone task cloning is handled by DB trigger clone_milestone_task_on_submit
     setSubmitting(false)
     handleClose()
     refetch()
@@ -78,6 +105,9 @@ export default function ChildTasksPage() {
     )
   }
 
+  const totalPending = pendingTasks.length + pendingMilestones.length
+  const totalDone    = allDoneTasks.length + allDoneMilestones.length
+
   const tabs: { key: ActiveTab; label: string; count: number; active: string; inactive: string }[] = [
     {
       key: 'todo',
@@ -89,14 +119,14 @@ export default function ChildTasksPage() {
     {
       key: 'pending',
       label: '审批中',
-      count: pendingTasks.length,
+      count: totalPending,
       active: 'bg-amber-500 text-white',
       inactive: 'bg-white text-amber-600 border border-amber-200',
     },
     {
       key: 'done',
       label: '已完成',
-      count: allDoneTasks.length,
+      count: totalDone,
       active: 'bg-green-600 text-white',
       inactive: 'bg-white text-green-600 border border-green-200',
     },
@@ -139,11 +169,16 @@ export default function ChildTasksPage() {
       {/* 审批中 */}
       {activeTab === 'pending' && (
         <div className="space-y-3">
-          {pendingTasks.length === 0
+          {totalPending === 0
             ? <EmptyState text="暂无审批中的任务" />
-            : pendingTasks.map(task => (
-                <TaskCard key={task.id} task={task} onSubmit={setSelectedTask} />
-              ))
+            : <>
+                {pendingTasks.map(task => (
+                  <TaskCard key={task.id} task={task} onSubmit={setSelectedTask} />
+                ))}
+                {pendingMilestones.map(m => (
+                  <MilestoneCompletionCard key={m.completion.id} item={m} />
+                ))}
+              </>
           }
         </div>
       )}
@@ -168,13 +203,15 @@ export default function ChildTasksPage() {
             ))}
           </div>
 
-          {filteredDoneTasks.length === 0
+          {allDoneItems.length === 0
             ? <EmptyState text="该时间段内暂无完成记录" />
             : (
               <div className="space-y-3">
-                {pagedDoneTasks.map(task => (
-                  <TaskCard key={task.id} task={task} onSubmit={setSelectedTask} />
-                ))}
+                {pagedDoneItems.map(item =>
+                  item.kind === 'task'
+                    ? <TaskCard key={item.data.id} task={item.data} onSubmit={setSelectedTask} />
+                    : <MilestoneCompletionCard key={(item.data as MilestoneCompletion).completion.id} item={item.data as MilestoneCompletion} />
+                )}
               </div>
             )
           }
@@ -212,14 +249,49 @@ export default function ChildTasksPage() {
                 <p className="font-black text-gray-800">{selectedTask.title}</p>
                 <div className="flex gap-2 mt-1">
                   {selectedTask.stars_reward > 0 && (
-                    <span className="text-xs font-bold text-amber-600">⭐ +{selectedTask.stars_reward}</span>
+                    <span className="text-xs font-bold text-amber-600">
+                      ⭐ +{selectedTask.recurrence === 'milestone' && quantity > 1
+                        ? selectedTask.stars_reward * quantity
+                        : selectedTask.stars_reward}
+                      {selectedTask.recurrence === 'milestone' && quantity > 1 && (
+                        <span className="text-amber-400"> ({selectedTask.stars_reward}×{quantity})</span>
+                      )}
+                    </span>
                   )}
                   {selectedTask.magic_stars_reward > 0 && (
-                    <span className="text-xs font-bold text-violet-600">🌟 +{selectedTask.magic_stars_reward}</span>
+                    <span className="text-xs font-bold text-violet-600">
+                      🌟 +{selectedTask.recurrence === 'milestone' && quantity > 1
+                        ? selectedTask.magic_stars_reward * quantity
+                        : selectedTask.magic_stars_reward}
+                      {selectedTask.recurrence === 'milestone' && quantity > 1 && (
+                        <span className="text-violet-400"> ({selectedTask.magic_stars_reward}×{quantity})</span>
+                      )}
+                    </span>
                   )}
                 </div>
               </div>
             </div>
+
+            {selectedTask.recurrence === 'milestone' && (
+              <div>
+                <label className="block text-sm font-bold text-gray-600 mb-2">场次数量</label>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => setQuantity(q => Math.max(1, q - 1))}
+                    className="w-10 h-10 rounded-xl bg-gray-100 text-gray-600 font-black text-lg flex items-center justify-center active:scale-95 transition-transform"
+                  >
+                    −
+                  </button>
+                  <span className="flex-1 text-center font-black text-2xl text-gray-800">{quantity}</span>
+                  <button
+                    onClick={() => setQuantity(q => Math.min(20, q + 1))}
+                    className="w-10 h-10 rounded-xl bg-violet-100 text-violet-600 font-black text-lg flex items-center justify-center active:scale-95 transition-transform"
+                  >
+                    ＋
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div>
               <label className="block text-sm font-bold text-gray-600 mb-2">

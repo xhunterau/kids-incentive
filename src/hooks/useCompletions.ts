@@ -2,12 +2,24 @@ import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import type { TaskCompletion, Task, Profile } from '../types'
 
+export interface SubmitCompletionOptions {
+  starsReward?: number | null
+  magicStarsReward?: number | null
+}
+
 export function useSubmitCompletion() {
-  const submit = async (taskId: string, childId: string, note: string) => {
+  const submit = async (
+    taskId: string,
+    childId: string,
+    note: string,
+    opts: SubmitCompletionOptions = {},
+  ) => {
     const { error } = await supabase.from('task_completions').insert({
       task_id: taskId,
       child_id: childId,
       note: note.trim() || null,
+      stars_reward: opts.starsReward ?? null,
+      magic_stars_reward: opts.magicStarsReward ?? null,
     })
     return { error }
   }

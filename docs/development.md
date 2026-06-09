@@ -55,7 +55,7 @@
 - **魔法星** 在商店购买金豆豆套餐（消耗魔法星，获得金豆豆）
 - **金豆豆** 由孩子自主选择数量「支付」，余额即时扣减，家长可查看消费记录后线下兑现
 - 任务支持「一次性」「每日」「每周」「里程碑」四种周期
-- **里程碑任务**：无固定时间周期，审批通过后立即重置为可提交状态，可无限次完成（如：每次考试满分 / 每次比赛赢一局）；`TaskCard` 显示累计获奖次数
+- **里程碑任务**：无固定时间周期，是永久存在的模板，可无限次提交完成（如：每次考试满分 / 每次比赛赢一局）；孩子端待完成 Tab 中始终显示可提交；每条申请记录独立展示在审批中/已完成 Tab；提交时可填写场次数量（1–20），奖励自动按倍数计算
 
 ---
 
@@ -410,18 +410,22 @@ create trigger tasks_updated_at
 create type public.completion_status as enum ('pending', 'approved', 'rejected');
 
 create table public.task_completions (
-  id            uuid primary key default gen_random_uuid(),
-  task_id       uuid not null references public.tasks(id) on delete cascade,
-  child_id      uuid not null references public.profiles(id) on delete cascade,
-  status        public.completion_status not null default 'pending',
-  note          text,
-  proof_url     text,
-  reviewed_by   uuid references public.profiles(id) on delete set null,
-  reviewed_at   timestamptz,
-  reject_reason text,
-  created_at    timestamptz not null default now()
+  id                   uuid primary key default gen_random_uuid(),
+  task_id              uuid not null references public.tasks(id) on delete cascade,
+  child_id             uuid not null references public.profiles(id) on delete cascade,
+  status               public.completion_status not null default 'pending',
+  note                 text,
+  proof_url            text,
+  reviewed_by          uuid references public.profiles(id) on delete set null,
+  reviewed_at          timestamptz,
+  reject_reason        text,
+  stars_reward         integer null,  -- override: set when child submits with quantity > 1 (base × count)
+  magic_stars_reward   integer null,  -- override: same. null means use task base value
+  created_at           timestamptz not null default now()
 );
 ```
+
+> **奖励覆盖规则**：`stars_reward` / `magic_stars_reward` 为可空列。非 null 时（里程碑批量提交）优先使用该值发放奖励；null 时回退到 `tasks.stars_reward` / `tasks.magic_stars_reward`。所有读取奖励的地方统一用 `completion.stars_reward ?? task.stars_reward` 模式。
 
 ### 6.6 star_conversions 表（⭐ → 🌟）
 
@@ -507,6 +511,8 @@ create table public.currency_transactions (
 
 ### 6.11 触发器：任务审批自动发放积分
 
+> 使用 `coalesce(new.stars_reward, t.stars_reward)` 优先取 completion 的覆盖值，支持里程碑批量提交的场次倍增奖励。
+
 ```sql
 create or replace function public.handle_task_approval()
 returns trigger language plpgsql security definer as $$
@@ -515,9 +521,11 @@ declare
   v_magic integer;
 begin
   if (old.status = 'pending' and new.status = 'approved') then
-    select stars_reward, magic_stars_reward
+    -- coalesce: prefer completion-level override (batch milestone), else use task base
+    select coalesce(new.stars_reward, t.stars_reward),
+           coalesce(new.magic_stars_reward, t.magic_stars_reward)
       into v_stars, v_magic
-      from public.tasks where id = new.task_id;
+      from public.tasks t where t.id = new.task_id;
 
     update public.profiles set
       stars       = stars + v_stars,
@@ -1035,9 +1043,13 @@ supabase gen types typescript --linked > src/types/database.ts
 supabase/
 ├── config.toml
 └── migrations/
-    ├── 20260609000001_schema.sql                    # 第6节：建表 + 触发器
-    ├── 20260609000002_rls.sql                       # 第8节：RLS 策略
-    └── 20260609000003_fix_profiles_rls_recursion.sql # 修复 profiles 策略无限递归
+    ├── 20260609000001_schema.sql                        # 建表 + 触发器
+    ├── 20260609000002_rls.sql                           # RLS 策略
+    ├── 20260609000003_fix_profiles_rls_recursion.sql    # 修复 profiles 策略无限递归
+    ├── 20260609000005_add_milestone_recurrence.sql      # task_recurrence 枚举加 milestone
+    ├── 20260609000006_clone_milestone_task_trigger.sql  # ⚠️ 废弃（被007删除）
+    ├── 20260609000007_drop_clone_milestone_trigger.sql  # 删除克隆触发器（修复重复任务 Bug）
+    └── 20260609000008_completion_reward_override.sql    # task_completions 奖励覆盖列
 ```
 
 > seed 数据（初始账户/商品）直接在 Supabase SQL Editor 手动执行，不入 migration。
@@ -1102,46 +1114,63 @@ Phase 4 — 家长管理增强  ~1天   看板 + 周期任务 + 金豆豆发放
 
 ### Phase 1 补充 — 里程碑任务类型 + 任务大厅优化
 
-> 新增第四种任务周期：无固定时间、可重复完成（每次提交后 DB 自动克隆）。
-> 任务大厅改为三 Tab 布局，已完成支持时间筛选与翻页。
+> 新增第四种任务周期：无固定时间、可重复完成。任务大厅改为三 Tab 布局，已完成支持时间筛选与翻页。
 
-**里程碑任务设计**
+**里程碑任务架构（最终版）**
+
+里程碑任务是**永久存在的模板**，不克隆、不归档。孩子对同一个任务反复提交 `task_completions`，家长始终只看到 1 个任务条目。
 
 | 层 | 文件 | 说明 |
 |----|------|------|
-| DB migration | `supabase/migrations/20260609000005_add_milestone_recurrence.sql` | `ALTER TYPE task_recurrence ADD VALUE 'milestone'` |
-| DB trigger | `supabase/migrations/20260609000006_clone_milestone_task_trigger.sql` | `AFTER INSERT on task_completions`，SECURITY DEFINER；检测到 milestone 任务时在 DB 层自动克隆新任务，绕开孩子无 INSERT 权限的 RLS 限制 |
-| TS 类型 | `src/types/database.ts` + `supabase gen types` | `task_recurrence` 枚举含 `'milestone'` |
-| Hook | `src/hooks/useTasks.ts` | 新增 `completionCount` 字段（已 approved 次数）；`approved` 统一归为 `done`（克隆新任务负责下一次提交，原任务正常进入已完成） |
+| DB migration | `20260609000005_add_milestone_recurrence.sql` | `ALTER TYPE task_recurrence ADD VALUE 'milestone'` |
+| DB migration | `20260609000006_clone_milestone_task_trigger.sql` | ⚠️ 已被废弃——创建了克隆触发器（后被 `20260609000007` 删除） |
+| DB migration | `20260609000007_drop_clone_milestone_trigger.sql` | 删除克隆触发器和函数，修复家长端任务重复 Bug |
+| DB migration | `20260609000008_completion_reward_override.sql` | `task_completions` 新增 `stars_reward` / `magic_stars_reward` 可空覆盖列 |
+| TS 类型 | `src/types/database.ts` | `task_completions.Row/Insert/Update` 含新增两列 |
+| Hook | `src/hooks/useTasks.ts` | `TaskWithStatus` 新增 `pendingCount`；`MilestoneCompletion` 接口（completion + task）；`useChildTasks` 返回 `milestoneCompletions[]`；里程碑任务 `displayStatus` 固定为 `'todo'` |
+| Hook | `src/hooks/useCompletions.ts` | `useSubmitCompletion` 接受 `SubmitCompletionOptions`（`starsReward` / `magicStarsReward`），写入覆盖列 |
+| 新组件 | `src/components/tasks/MilestoneCompletionCard.tsx` | 单条里程碑完成记录卡片，显示奖励用 `completion.stars_reward ?? task.stars_reward` |
 | 任务表单 | `src/components/tasks/TaskForm.tsx` | 第四个周期选项「里程碑」 |
-| 任务卡片 | `src/components/tasks/TaskCard.tsx` | milestone 任务且 `completionCount > 0` 时显示「🏆 N 次」；已完成状态显示提交时间（`completion.created_at`）及备注 |
+| 任务卡片 | `src/components/tasks/TaskCard.tsx` | 里程碑任务显示「审批中 N 次」和「🏆 N 次」徽章 |
+| 家长审批卡 | `src/components/tasks/CompletionCard.tsx` | 奖励显示用 `completion.stars_reward ?? task.stars_reward` |
 | 家长任务页 | `src/pages/parent/TasksPage.tsx` | `RECURRENCE_LABEL` 加 `milestone: '里程碑'` |
+
+**孩子端任务大厅三 Tab 行为**
+
+| Tab | 配色 | 非里程碑 | 里程碑 |
+|-----|------|---------|--------|
+| 待完成 | 紫色（默认） | displayStatus = todo | 永远显示（含场次步进器） |
+| 审批中 | 橙色 | displayStatus = pending | 每条 pending completion 独立一张 `MilestoneCompletionCard` |
+| 已完成 | 绿色 | displayStatus = done | 每条 approved completion 独立一张 `MilestoneCompletionCard`，含备注与批准时间 |
+
+已完成含时间筛选（近1月 / 近3月 / 近1年 / 更早）；「更早」每页 10 条翻页；两类记录按提交时间降序合并显示。
+
+**场次批量提交**
+
+里程碑任务提交弹窗新增「场次数量」步进器（1–20）。quantity > 1 时：
+- `stars_reward * quantity` 写入 `task_completions.stars_reward`
+- `magic_stars_reward * quantity` 写入 `task_completions.magic_stars_reward`
+- 弹窗实时预览计算结果（如 `⭐ +10 (5×2)`）
 
 **审批 Bug 修复**
 
-`src/hooks/useCompletions.ts` — join 语法从 `child:profiles(*)` 改为 `child:profiles!task_completions_child_id_fkey(*)`，解决 PostgREST PGRST201 歧义错误（`task_completions` 对 `profiles` 有两条外键）。
+`src/hooks/useCompletions.ts` — join 语法指定 `child:profiles!task_completions_child_id_fkey(*)`，解决 PostgREST PGRST201 歧义错误（`task_completions` 对 `profiles` 有两条外键）。
 
-**任务大厅 Tab 化**
-
-`src/pages/child/TasksPage.tsx` 重构为三 Tab 布局：
-
-| Tab | 配色 | 说明 |
-|-----|------|------|
-| 待完成 | 紫色 | 默认选中 |
-| 审批中 | 橙色 | 等待家长审批的任务 |
-| 已完成 | 绿色 | 含时间筛选（近1月 / 近3月 / 近1年 / 更早）；「更早」每页 10 条翻页 |
-
-| # | 任务 |
-|---|------|
-| 1.11 | 新建 DB migration：`ALTER TYPE task_recurrence ADD VALUE 'milestone'` |
-| 1.12 | 重新生成 TypeScript 类型 |
-| 1.13 | `useTasks.ts`：`completionCount` 字段；`approved` 统一为 `done` |
-| 1.14 | `TaskForm.tsx`：添加「里程碑」选项 |
-| 1.15 | `TaskCard.tsx`：milestone 获奖次数徽章；已完成显示提交时间与备注 |
-| 1.16 | `ParentTasksPage.tsx`：RECURRENCE_LABEL 添加 `milestone` |
-| 1.17 | DB trigger `clone_milestone_task_on_submit`：孩子提交时自动克隆里程碑任务 |
-| 1.18 | 修复审批中心 PGRST201：`useCompletions.ts` 指定外键 `!task_completions_child_id_fkey` |
-| 1.19 | 任务大厅改为三 Tab（待完成 / 审批中 / 已完成），已完成含时间筛选与分页 |
+| # | 任务 | 状态 |
+|---|------|------|
+| 1.11 | DB migration：`ADD VALUE 'milestone'` | ✅ |
+| 1.12 | 重新生成 TypeScript 类型 | ✅ |
+| 1.13 | `useTasks.ts`：`completionCount` / `pendingCount` / `milestoneCompletions` | ✅ |
+| 1.14 | `TaskForm.tsx`：添加「里程碑」选项 | ✅ |
+| 1.15 | `TaskCard.tsx`：里程碑徽章（审批中 N 次 / 🏆 N 次） | ✅ |
+| 1.16 | `ParentTasksPage.tsx`：RECURRENCE_LABEL 添加 `milestone` | ✅ |
+| 1.17 | 修复克隆触发器导致家长重复任务 Bug（drop trigger migration） | ✅ |
+| 1.18 | 修复审批 PGRST201：指定外键 `!task_completions_child_id_fkey` | ✅ |
+| 1.19 | 任务大厅三 Tab + 时间筛选 + 分页 | ✅ |
+| 1.20 | 新建 `MilestoneCompletionCard` 组件 | ✅ |
+| 1.21 | `task_completions` 新增奖励覆盖列（migration + 类型同步） | ✅ |
+| 1.22 | 提交弹窗场次步进器 + 奖励预览 | ✅ |
+| 1.23 | `CompletionCard` 家长审批显示实际奖励值 | ✅ |
 
 ---
 
