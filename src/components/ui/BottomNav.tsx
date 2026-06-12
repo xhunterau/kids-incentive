@@ -1,7 +1,14 @@
 import { NavLink } from 'react-router-dom'
 import type { UserRole } from '../../types'
 
-const childTabs = [
+type BottomNavTab = {
+  to: string
+  icon: string
+  label: string
+  badge?: boolean
+}
+
+const childTabs: BottomNavTab[] = [
   { to: '/child/tasks',       icon: '📋', label: '任务' },
   { to: '/child/wallet',      icon: '💰', label: '宝箱' },
   { to: '/child/shop',        icon: '🛒', label: '商店' },
@@ -9,7 +16,7 @@ const childTabs = [
   { to: '/child/profile',     icon: '👤', label: '我的' },
 ]
 
-const parentTabs = [
+const parentTabs: BottomNavTab[] = [
   { to: '/parent/dashboard', icon: '📊', label: '看板',   badge: false },
   { to: '/parent/tasks',     icon: '📋', label: '任务',   badge: false },
   { to: '/parent/approvals', icon: '✅', label: '审批',   badge: true  },
