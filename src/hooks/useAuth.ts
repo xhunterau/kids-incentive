@@ -44,3 +44,10 @@ export function useAuthInit() {
 export function useAuth() {
   return useAuthStore()
 }
+
+// Inject a session obtained from the child-pin-login Edge Function
+export async function signInWithSession(access_token: string, refresh_token: string) {
+  const { data, error } = await supabase.auth.setSession({ access_token, refresh_token })
+  if (error) throw error
+  return data
+}

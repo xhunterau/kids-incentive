@@ -5,6 +5,9 @@ import { useSubmitCompletion } from '../../hooks/useCompletions'
 import { TaskCard } from '../../components/tasks/TaskCard'
 import { MilestoneCompletionCard } from '../../components/tasks/MilestoneCompletionCard'
 import { BottomSheet } from '../../components/ui/BottomSheet'
+import { Confetti } from '../../components/ui/Confetti'
+import { RewardPopup } from '../../components/ui/RewardPopup'
+import { EmptyState } from '../../components/ui/EmptyState'
 
 type ActiveTab = 'todo' | 'pending' | 'done'
 type DoneFilter = '1m' | '3m' | '1y' | 'older'
@@ -22,6 +25,9 @@ export default function ChildTasksPage() {
   const [quantity, setQuantity] = useState(1)
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
+  const [confettiActive, setConfettiActive] = useState(false)
+  const [rewardStars, setRewardStars] = useState(0)
+  const [rewardMagic, setRewardMagic] = useState(0)
   const [doneFilter, setDoneFilter] = useState<DoneFilter>('1m')
   const [olderPage, setOlderPage] = useState(0)
 
@@ -92,6 +98,10 @@ export default function ChildTasksPage() {
       setSubmitError(error.message)
       return
     }
+    const isMilestoneCalc = selectedTask.recurrence === 'milestone' && quantity > 1
+    setRewardStars(isMilestoneCalc ? selectedTask.stars_reward * quantity : selectedTask.stars_reward)
+    setRewardMagic(isMilestoneCalc ? selectedTask.magic_stars_reward * quantity : selectedTask.magic_stars_reward)
+    setConfettiActive(true)
     setSubmitting(false)
     handleClose()
     refetch()
@@ -134,6 +144,8 @@ export default function ChildTasksPage() {
 
   return (
     <div className="px-4 pt-4 pb-4">
+      <Confetti active={confettiActive} onDone={() => setConfettiActive(false)} />
+      <RewardPopup active={confettiActive} stars={rewardStars} magicStars={rewardMagic} />
       {/* Tab bar */}
       <div className="flex gap-2 mb-5">
         {tabs.map(tab => (
@@ -158,7 +170,7 @@ export default function ChildTasksPage() {
       {activeTab === 'todo' && (
         <div className="space-y-3">
           {todoTasks.length === 0
-            ? <EmptyState text="暂无待完成任务 🎉" />
+            ? <EmptyState emoji="🎉" title="暂无待完成任务" subtitle="所有任务都完成了，太棒了！" />
             : todoTasks.map(task => (
                 <TaskCard key={task.id} task={task} onSubmit={setSelectedTask} />
               ))
@@ -170,7 +182,7 @@ export default function ChildTasksPage() {
       {activeTab === 'pending' && (
         <div className="space-y-3">
           {totalPending === 0
-            ? <EmptyState text="暂无审批中的任务" />
+            ? <EmptyState emoji="✅" title="暂无审批中的任务" />
             : <>
                 {pendingTasks.map(task => (
                   <TaskCard key={task.id} task={task} onSubmit={setSelectedTask} />
@@ -204,7 +216,7 @@ export default function ChildTasksPage() {
           </div>
 
           {allDoneItems.length === 0
-            ? <EmptyState text="该时间段内暂无完成记录" />
+            ? <EmptyState emoji="📅" title="该时间段内暂无完成记录" />
             : (
               <div className="space-y-3">
                 {pagedDoneItems.map(item =>
@@ -324,6 +336,3 @@ export default function ChildTasksPage() {
   )
 }
 
-function EmptyState({ text }: { text: string }) {
-  return <p className="text-center text-gray-400 py-12 text-sm font-bold">{text}</p>
-}

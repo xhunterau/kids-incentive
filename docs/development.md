@@ -1,6 +1,6 @@
 # 儿童激励系统 — 开发文档
 
-> 版本：v0.5.0 | 日期：2026-06-09 | 作者：Wayne
+> 版本：v0.8.0 | 日期：2026-06-12 | 作者：Wayne
 
 ---
 
@@ -920,25 +920,25 @@ src/
 │   │   └── CompletionCard.tsx # 家长审批卡片
 │   │
 │   ├── shop/
-│   │   ├── ProductCard.tsx    # 金豆豆套餐卡片（含划算标签）
-│   │   ├── ProductGrid.tsx    # 三款商品网格
-│   │   └── PurchaseConfirm.tsx # 购买确认弹层
+│   │   ├── ProductCard.tsx         # 金豆豆套餐卡片（含划算标签）
+│   │   └── PurchaseConfirmSheet.tsx # 购买确认 BottomSheet
 │   │
 │   ├── currency/
-│   │   ├── StarConvertCard.tsx # 星星升级魔法星操作卡
-│   │   └── TransactionList.tsx # 流水记录
+│   │   ├── StarConvertSheet.tsx    # 星星升级魔法星 BottomSheet
+│   │   ├── SpendBeansSheet.tsx     # 消费金豆豆 BottomSheet
+│   │   └── TransactionList.tsx    # 流水记录列表
 │   │
 │   └── leaderboard/
 │       └── RankRow.tsx
 │
 ├── hooks/
-│   ├── useAuth.ts
-│   ├── useProfile.ts
-│   ├── useTasks.ts
-│   ├── useCompletions.ts
-│   ├── useCurrency.ts          # 余额、流水、星星升级
-│   ├── useShop.ts              # 商品列表、购买操作
-│   └── useLeaderboard.ts       # Realtime 排行榜
+│   ├── useAuth.ts              # useAuthInit + useAuth（读 authStore）
+│   ├── useProfile.ts           # useProfileRealtime + useRefreshProfile
+│   ├── useTasks.ts             # useChildTasks / useParentTasks
+│   ├── useCompletions.ts       # useSubmitCompletion / usePendingCompletions
+│   ├── useCurrency.ts          # useTransactions / useStarConvert / useSpendBeans
+│   ├── useShop.ts              # useShopProducts / usePurchaseProduct
+│   └── useLeaderboard.ts       # Realtime 排行榜（Phase 3）
 │
 ├── lib/
 │   ├── supabase.ts
@@ -1068,11 +1068,12 @@ supabase/
 ### 阶段总览
 
 ```
-Phase 0 — 基础设施      ~1天   Supabase 连通 + 登录
-Phase 1 — 核心任务流    ~3天   任务 → 完成 → 审批 → 积分到账
-Phase 2 — 货币 + 商店   ~2天   星星升级 + 商店购买金豆豆
-Phase 3 — 儿童体验打磨  ~2天   动效 + 排行榜 + 移动端细节
-Phase 4 — 家长管理增强  ~1天   看板 + 周期任务 + 金豆豆发放
+Phase 0 — 基础设施      ✅ 完成   Supabase 连通 + 登录
+Phase 1 — 核心任务流    ✅ 完成   任务 → 完成 → 审批 → 积分到账
+Phase 2 — 货币 + 商店   ✅ 完成   星星升级 + 商店购买金豆豆
+Phase 3 — 儿童体验打磨  ✅ 完成   动效 + 排行榜 + 移动端细节
+Phase 4 — 家长管理增强  ✅ 完成   看板 + 周期重置 + 审批角标 + 家庭管理 + 创建孩子账号
+Phase 5 — 孩子 PIN 登录 🚧 代码完成，待部署  头像选择器 + 4 位 PIN 键盘 + Edge Function 验证
 ```
 
 ---
@@ -1174,49 +1175,284 @@ Phase 4 — 家长管理增强  ~1天   看板 + 周期任务 + 金豆豆发放
 
 ---
 
-### Phase 2 — 货币体系 + 商店
+### Phase 2 — 货币体系 + 商店 ✅ 完成
 
-| # | 任务 |
-|---|------|
-| 2.1 | 孩子端：我的宝箱页（三种余额大数字 + 流水） |
-| 2.2 | `StarConvertCard`：选择升级数量（5的倍数），确认后即时到账 |
-| 2.3 | 验证星星升级触发器 |
-| 2.4 | 孩子端：金豆豆商店页 |
-| 2.5 | `ProductCard`：套餐展示（价格、获得量、划算标签） |
-| 2.6 | `PurchaseConfirm`：确认购买弹层（余额不足时禁用） |
-| 2.7 | 验证商店购买触发器：余额扣减、金豆豆到账 |
-| 2.8 | 孩子端：宝箱页「消费金豆豆」功能（选数量 + 备注 + 触发器扣减） |
-| 2.9 | 家长端：金豆豆消费记录页（按孩子分组，查看历史） |
-| 2.9 | `TransactionList`：流水记录，图标区分来源 |
+**新建文件**
+
+| 文件 | 说明 |
+|------|------|
+| `src/hooks/useCurrency.ts` | `useTransactions`（流水查询）、`useStarConvert`（插 star_conversions）、`useSpendBeans`（插 bean_redemptions） |
+| `src/hooks/useShop.ts` | `useShopProducts`（商品列表）、`usePurchaseProduct`（插 shop_purchases） |
+| `src/components/currency/StarConvertSheet.tsx` | BottomSheet：升级次数步进器 + 消耗/获得预览 + 确认升级 |
+| `src/components/currency/SpendBeansSheet.tsx` | BottomSheet：消费数量步进器 + 可选备注 + 确认支付 |
+| `src/components/currency/TransactionList.tsx` | 流水列表，来源中文标签 + 货币图标 + 收/支颜色 |
+| `src/components/shop/ProductCard.tsx` | 商品卡片，`sort_order=2`→「有折扣」`sort_order=3`→「最划算」标签 |
+| `src/components/shop/PurchaseConfirmSheet.tsx` | BottomSheet：购前余额/消耗/获得/购后余额预览 + 确认购买 |
+
+**填充页面**
+
+| 文件 | 说明 |
+|------|------|
+| `src/pages/child/WalletPage.tsx` | 三色余额卡（⭐/🌟/🪙）+ 升级/消费入口 + TransactionList |
+| `src/pages/child/ShopPage.tsx` | 魔法星余额横幅 + 三款 ProductCard + PurchaseConfirmSheet |
+| `src/pages/parent/BeansPage.tsx` | 按孩子分组的金豆豆消费历史（双层查询，无独立 hook） |
+
+**余额刷新机制**
+
+所有操作（升级/购买/消费）成功后，调用 `useRefreshProfile()` 主动拉取最新 profile 写入 Zustand store，WalletBar 和页面余额立即更新。
+> **原因**：`profiles` 表未配置 Supabase Realtime publication，`useProfileRealtime` 订阅不触发，改为操作成功后显式拉取。
+> `useRefreshProfile` 实现在 `src/hooks/useProfile.ts`。
+
+| # | 任务 | 状态 |
+|---|------|------|
+| 2.1 | `useCurrency.ts`：useTransactions / useStarConvert / useSpendBeans | ✅ |
+| 2.2 | `useShop.ts`：useShopProducts / usePurchaseProduct | ✅ |
+| 2.3 | `StarConvertSheet`：步进器 + 预览 + 确认 | ✅ |
+| 2.4 | `SpendBeansSheet`：步进器 + 备注 + 确认 | ✅ |
+| 2.5 | `TransactionList`：流水列表组件 | ✅ |
+| 2.6 | `ProductCard`：商品卡片 + 划算标签 | ✅ |
+| 2.7 | `PurchaseConfirmSheet`：购买确认弹层 | ✅ |
+| 2.8 | `WalletPage`：宝箱页完整实现 | ✅ |
+| 2.9 | `ShopPage`：商店页完整实现 | ✅ |
+| 2.10 | `BeansPage`：家长金豆豆消费历史 | ✅ |
+| 2.11 | `useRefreshProfile`：修复操作后余额不刷新问题 | ✅ |
 
 ---
 
-### Phase 3 — 儿童体验打磨
+### Phase 3 — 儿童体验打磨 ✅ 完成
 
-| # | 任务 |
-|---|------|
-| 3.1 | 全局 CSS：Nunito 字体 + 配色变量 + 圆角系统 |
-| 3.2 | 移动端视口适配（防 iOS 缩放） |
-| 3.3 | 任务提交动效（五彩纸屑 + 积分飞入 WalletBar） |
-| 3.4 | 星星升级动效（粒子聚合） |
-| 3.5 | 商店购买动效（金豆豆雨 + 余额滚动） |
-| 3.6 | 排行榜页（按 magic_stars 降序，自己名次高亮） |
-| 3.7 | Realtime 排行榜（订阅 profiles 变化） |
-| 3.8 | 头像选择器（12款动物网格） |
-| 3.9 | 空状态设计（无任务/无记录时的引导插画） |
-| 3.10 | 按钮点击弹跳动效 + 页面切换动画 |
+**新建文件**
+
+| 文件 | 说明 |
+|------|------|
+| `src/components/ui/Confetti.tsx` | 40粒随机颜色纸屑，任务提交成功时触发 |
+| `src/components/ui/RewardPopup.tsx` | 积分弹出气泡（⭐/🌟），与 Confetti 同步触发 |
+| `src/components/ui/StarBurst.tsx` | 星星聚合爆发动效，星星升级成功后触发 |
+| `src/components/ui/BeanRain.tsx` | 金豆豆雨 + 数量弹出，商店购买成功后触发 |
+| `src/components/ui/EmptyState.tsx` | 通用空状态组件（emoji + 标题 + 副文案） |
+| `src/components/ui/AvatarPicker.tsx` | 12款动物 emoji 网格头像选择器 |
+| `src/hooks/useLeaderboard.ts` | 查询家庭孩子魔法星排名，Realtime 订阅 profiles 更新 |
+
+**修改文件**
+
+| 文件 | 改动 |
+|------|------|
+| `src/index.css` | CSS变量（配色/渐变）+ 8个keyframe动画 + 工具类 |
+| `index.html` | viewport 防iOS缩放 + apple-mobile-web-app meta |
+| `src/components/ui/AppLayout.tsx` | `key={location.pathname}` 触发 slide-up 页面切换动画 |
+| `src/components/currency/StarConvertSheet.tsx` | 新增 `onSuccess(magicGained)` 回调 |
+| `src/components/shop/PurchaseConfirmSheet.tsx` | 新增 `onSuccess(beansGained)` 回调 |
+| `src/pages/child/TasksPage.tsx` | 接入 Confetti + RewardPopup，替换 EmptyState |
+| `src/pages/child/WalletPage.tsx` | 接入 StarBurst，EmptyState 空流水状态 |
+| `src/pages/child/ShopPage.tsx` | 接入 BeanRain |
+| `src/pages/child/LeaderboardPage.tsx` | 完整实现：金银铜牌 + 自己行高亮 + 延迟入场动画 |
+| `src/pages/child/ProfilePage.tsx` | 完整实现：头像编辑 + 4项统计卡 + 退出登录 |
+
+| # | 任务 | 状态 |
+|---|------|------|
+| 3.1 | 全局 CSS：Nunito 字体 + 配色变量 + 圆角系统 | ✅ |
+| 3.2 | 移动端视口适配（防 iOS 缩放） | ✅ |
+| 3.3 | 任务提交动效（五彩纸屑 + 积分弹出） | ✅ |
+| 3.4 | 星星升级动效（粒子聚合 + 魔法星弹出） | ✅ |
+| 3.5 | 商店购买动效（金豆豆雨 + 数量弹出） | ✅ |
+| 3.6 | 排行榜页（按 magic_stars 降序，自己名次高亮） | ✅ |
+| 3.7 | Realtime 排行榜（订阅 profiles 变化） | ✅ |
+| 3.8 | 头像选择器（12款动物网格） | ✅ |
+| 3.9 | 空状态设计（无任务/无记录时的引导插画） | ✅ |
+| 3.10 | 按钮点击弹跳动效 + 页面切换动画 | ✅ |
 
 ---
 
-### Phase 4 — 家长管理增强
+### Phase 4 — 家长管理增强 ✅ 完成
 
-| # | 任务 |
-|---|------|
-| 4.1 | 家长看板：Darren vs Ricky 魔法星对比 + 本周完成任务数 |
-| 4.2 | 审批角标：pending 时底部导航显示红点 |
-| 4.3 | 任务周期自动重置（Supabase Edge Function + pg_cron） |
-| 4.4 | 家庭名称设置：家庭设置页修改家庭名称 |
-| 4.5 | 家长创建孩子账号（应用内流程） |
+**方案 A（纯前端周期重置）**：在 `useChildTasks` 中按本地时间判断 daily/weekly 任务是否应重置，无需后端 cron。
+
+**新建文件**
+
+| 文件 | 说明 |
+|------|------|
+| `supabase/functions/create-child/index.ts` | Edge Function：服务端 admin API 创建孩子账号（避免前端 signUp 覆盖家长 session） |
+
+**修改文件**
+
+| 文件 | 改动 |
+|------|------|
+| `src/hooks/useTasks.ts` | 新增 `getDisplayStatus()` 辅助函数，daily 按当天 00:00 / weekly 按本周一 00:00 判断是否重置为 todo |
+| `src/hooks/useCompletions.ts` | 新增 `usePendingCount(familyId)`，查询 + Realtime 订阅 pending 数量 |
+| `src/components/ui/BottomNav.tsx` | 接收 `pendingCount` prop，审批 tab 上显示红点数字 |
+| `src/components/ui/AppLayout.tsx` | 家长角色时调用 `usePendingCount`，传给 `BottomNav` |
+| `src/pages/parent/DashboardPage.tsx` | 完整实现：魔法星排名（含进度条）+ 本周完成任务数 + 货币余额总览 |
+| `src/pages/parent/FamilyPage.tsx` | 家庭名称编辑 + 成员列表（含余额）+ 添加孩子账号表单（调用 Edge Function） |
+
+**任务周期重置规则**
+
+| 周期 | pending completion | approved completion |
+|------|-------------------|---------------------|
+| once | → pending | → done（永久） |
+| daily | → pending | 今天内 → done；昨天前 → todo |
+| weekly | → pending | 本周内 → done；上周前 → todo |
+| milestone | 始终 todo | 始终 todo |
+
+**4.5 创建孩子账号流程**
+1. 家长在「家庭管理」页填写昵称、头像、邮箱、密码
+2. 前端携带家长 JWT 调用 `POST /functions/v1/create-child`
+3. Edge Function 验证调用方为 parent → `admin.createUser()` → 插入 `profiles`
+4. 创建成功后刷新成员列表
+
+| # | 任务 | 状态 |
+|---|------|------|
+| 4.1 | 家长看板：魔法星排名 + 本周完成数 + 余额总览 | ✅ |
+| 4.2 | 审批角标：pending 时底部导航显示红点数字 | ✅ |
+| 4.3 | 任务周期自动重置（方案A：纯前端时间判断） | ✅ |
+| 4.4 | 家庭名称设置 + 成员展示 | ✅ |
+| 4.5 | 家长应用内创建孩子账号（Edge Function） | ✅ |
+
+> **Edge Function 部署记录**：`create-child` 已于 2026-06-12 通过 `supabase functions deploy create-child` 部署至项目 `piglodngfxutxdpauooj`。
+
+---
+
+### Phase 5 — 孩子 PIN 登录
+
+> 目标：孩子无需记邮箱/密码，在登录页选择自己头像后输入 4 位 PIN 即可进入。家长端保持原有邮箱/密码登录不变。
+
+#### 设计决策
+
+- **单独 `child_pins` 表**而非在 `profiles` 加列：PIN 哈希通过 RLS 设为客户端完全不可读，只有 Edge Function（service role）能访问，防止前端泄露后被穷举
+- **pgcrypto `crypt()` + bcrypt**：哈希强度远超 4 位 PIN 的熵，抵御离线暴力破解
+- **登录页无需预认证**：`get-children-for-login` Edge Function 仅返回 `id / display_name / avatar_emoji`，不涉及敏感信息，可公开调用
+
+#### 登录流程
+
+```
+登录页
+  ├── [家长登录] Tab → 现有邮箱 + 密码表单
+  └── [孩子登录] Tab
+        Step 1: 头像选择器（调用 get-children-for-login，展示所有 child 角色用户）
+        Step 2: PIN 键盘（4位数字，大按钮，适合小手指）
+              ↓ 调用 child-pin-login Edge Function
+              ↓ 验证通过 → 返回 access_token / refresh_token
+              ↓ 前端 setSession() → 路由跳转 /child/tasks
+```
+
+#### 数据库改动
+
+**Migration `20260612000009_child_pins.sql`**
+
+```sql
+-- 启用 pgcrypto（如未开启）
+create extension if not exists pgcrypto;
+
+-- PIN 存储表：独立于 profiles，RLS 禁止任何客户端读取
+create table public.child_pins (
+  child_id   uuid primary key references public.profiles(id) on delete cascade,
+  pin_hash   text not null,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.child_pins enable row level security;
+
+-- 禁止所有客户端读取（只有 Edge Function service role 可访问）
+-- 无 select policy = 无任何角色可查询
+-- 家长可通过 set-child-pin Edge Function 写入（服务端验证）
+```
+
+#### Edge Functions
+
+| 函数 | 认证 | 说明 |
+|------|------|------|
+| `get-children-for-login` | 无需认证（anon 可调） | 返回 `[{id, display_name, avatar_emoji}]`，仅限 `role=child` 的 profiles |
+| `set-child-pin` | 需要家长 JWT | 接收 `{child_id, pin}`；验证调用方为 parent 且同 family；用 `crypt(pin, gen_salt('bf'))` 哈希后 upsert 到 `child_pins` |
+| `child-pin-login` | 无需认证（anon 可调） | 接收 `{child_id, pin}`；service role 查 `child_pins` 验证；通过后调用 `admin.signInAsUser({id: child_id})` 返回 session |
+
+**`child-pin-login` 核心逻辑**
+
+```typescript
+// 1. 用 service role client 查询 PIN 哈希
+const { data: pinRow } = await adminClient
+  .from('child_pins')
+  .select('pin_hash')
+  .eq('child_id', child_id)
+  .single()
+
+if (!pinRow) return 401 // 未设置 PIN
+
+// 2. pgcrypto 验证（在数据库端执行，避免哈希值传到应用层）
+const { data: valid } = await adminClient
+  .rpc('verify_child_pin', { p_child_id: child_id, p_pin: pin })
+
+if (!valid) return 401
+
+// 3. 生成 session
+const { data: { session } } = await adminClient.auth.admin.signInAsUser(child_id)
+return { access_token, refresh_token, ... }
+```
+
+**验证辅助函数（放在 migration 里）**
+
+```sql
+-- 在 DB 端验证，避免 pin_hash 传出数据库
+create or replace function public.verify_child_pin(p_child_id uuid, p_pin text)
+returns boolean language sql security definer set search_path = public as $$
+  select exists (
+    select 1 from public.child_pins
+    where child_id = p_child_id
+      and pin_hash = crypt(p_pin, pin_hash)
+  )
+$$;
+```
+
+#### 前端改动
+
+**新建文件**
+
+| 文件 | 说明 |
+|------|------|
+| `src/components/auth/ChildLoginFlow.tsx` | 两步流程容器：Step1 头像选择 → Step2 PIN 输入 |
+| `src/components/auth/AvatarPicker.tsx` | 展示 children 列表，每个孩子一张大头像卡片 |
+| `src/components/auth/PinPad.tsx` | 4 位 PIN 数字键盘（0-9 + 删除），大按钮适合触屏 |
+| `src/components/auth/PinSetSheet.tsx` | 家长端 BottomSheet：输入两次 PIN 确认后调用 `set-child-pin` |
+
+**修改文件**
+
+| 文件 | 改动 |
+|------|------|
+| `src/pages/auth/LoginPage.tsx` | 顶部 Tab 切换「家长登录 / 孩子登录」；孩子 Tab 渲染 `ChildLoginFlow` |
+| `src/pages/parent/FamilyPage.tsx` | 每个孩子成员卡新增「设置 PIN」按钮，打开 `PinSetSheet` |
+| `src/hooks/useAuth.ts` | 新增 `signInWithSession(access_token, refresh_token)`，供 PIN 登录后手动注入 session |
+
+#### PIN 键盘 UI 规范
+
+```
+┌─────────────────────────┐
+│  Darren 🐼              │
+│  ● ● ○ ○               │  ← 已输入2位，圆点显示
+│                          │
+│  ┌───┬───┬───┐          │
+│  │ 1 │ 2 │ 3 │          │
+│  ├───┼───┼───┤          │
+│  │ 4 │ 5 │ 6 │  每格    │
+│  ├───┼───┼───┤  72px高  │
+│  │ 7 │ 8 │ 9 │          │
+│  ├───┼───┼───┤          │
+│  │   │ 0 │ ⌫ │          │
+│  └───┴───┴───┘          │
+└─────────────────────────┘
+```
+
+| # | 任务 | 状态 |
+|---|------|------|
+| 5.1 | Migration：`child_pins` 表 + `verify_child_pin` / `upsert_child_pin` 函数 + RLS | ✅ |
+| 5.2 | Edge Function：`get-children-for-login` | ✅ |
+| 5.3 | Edge Function：`set-child-pin`（验证家长 + bcrypt 哈希 + 随机化旧密码） | ✅ |
+| 5.4 | Edge Function：`child-pin-login`（DB 端验证 + `admin.signInAsUser`） | ✅ |
+| 5.5 | `PinPad.tsx`：4 位数字键盘组件 | ✅ |
+| 5.6 | `ChildLoginFlow.tsx`：两步流程容器（头像选 + PIN 输入，4位自动提交） | ✅ |
+| 5.7 | `LoginPage.tsx`：Tab 切换 + 接入 ChildLoginFlow | ✅ |
+| 5.8 | `useAuth.ts`：`signInWithSession` 注入 PIN 登录返回的 session | ✅ |
+| 5.9 | `PinSetSheet.tsx`：家长设置 PIN 弹层（两次确认） | ✅ |
+| 5.10 | `FamilyPage.tsx`：每个孩子添加「设置 PIN」按钮 | ✅ |
+| 5.11 | 部署 3 个 Edge Functions + 执行 migration | ⬜ |
+| 5.12 | 端到端测试：PIN 设置 → 孩子登录 → 路由跳转 | ⬜ |
 
 ---
 
@@ -1227,6 +1463,7 @@ Phase 4 — 家长管理增强  ~1天   看板 + 周期任务 + 金豆豆发放
 | **P0 必须** | 0 + 1 + 2 | 完整货币闭环，最小可用版本 |
 | **P1 重要** | 3 | 动效 + 排行榜，孩子愿意每天打开 |
 | **P2 增强** | 4 | 家长运营更省力 |
+| **P3 体验** | 5 | 孩子独立登录，无需记密码 |
 
 ---
 

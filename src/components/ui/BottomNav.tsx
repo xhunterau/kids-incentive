@@ -10,14 +10,14 @@ const childTabs = [
 ]
 
 const parentTabs = [
-  { to: '/parent/dashboard', icon: '📊', label: '看板' },
-  { to: '/parent/tasks',     icon: '📋', label: '任务' },
-  { to: '/parent/approvals', icon: '✅', label: '审批' },
-  { to: '/parent/beans',     icon: '🪙', label: '金豆豆' },
-  { to: '/parent/family',    icon: '👨‍👧‍👦', label: '家庭' },
+  { to: '/parent/dashboard', icon: '📊', label: '看板',   badge: false },
+  { to: '/parent/tasks',     icon: '📋', label: '任务',   badge: false },
+  { to: '/parent/approvals', icon: '✅', label: '审批',   badge: true  },
+  { to: '/parent/beans',     icon: '🪙', label: '金豆豆', badge: false },
+  { to: '/parent/family',    icon: '👨‍👩‍👧‍👦', label: '家庭',   badge: false },
 ]
 
-export function BottomNav({ role }: { role: UserRole }) {
+export function BottomNav({ role, pendingCount = 0 }: { role: UserRole; pendingCount?: number }) {
   const tabs = role === 'parent' ? parentTabs : childTabs
 
   return (
@@ -33,7 +33,14 @@ export function BottomNav({ role }: { role: UserRole }) {
               }`
             }
           >
-            <span className="text-2xl leading-none">{tab.icon}</span>
+            <div className="relative inline-flex">
+              <span className="text-2xl leading-none">{tab.icon}</span>
+              {'badge' in tab && tab.badge && pendingCount > 0 && (
+                <span className="absolute -top-1 -right-2 bg-red-500 text-white text-[10px] font-black rounded-full min-w-[16px] h-4 flex items-center justify-center px-1 leading-none">
+                  {pendingCount > 99 ? '99+' : pendingCount}
+                </span>
+              )}
+            </div>
             <span className="text-[10px] font-bold">{tab.label}</span>
           </NavLink>
         ))}

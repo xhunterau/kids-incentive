@@ -81,3 +81,37 @@ export function usePendingCompletions(familyId: string) {
 
   return { completions, loading, approve, reject, refetch: fetchCompletions }
 }
+
+export function usePendingCount(familyId: string | null | undefined) {
+  const [count, setCount] = useState(0)
+
+  useEffect(() => {
+    if (!familyId) return
+
+    let cancelled = false
+
+    async function fetch() {
+      const { data } = await supabase
+        .from('task_completions')
+        .select('id, task:tasks!inner(family_id)')
+        .eq('status', 'pending')
+        .eq('task.family_id', familyId!)
+
+      if (!cancelled) setCount(data?.length ?? 0)
+    }
+
+    fetch()
+
+    const channel = supabase
+      .channel(`pending_count:${familyId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'task_completions' }, fetch)
+      .subscribe()
+
+    return () => {
+      cancelled = true
+      supabase.removeChannel(channel)
+    }
+  }, [familyId])
+
+  return count
+}

@@ -4,6 +4,31 @@ import type { Task, TaskCompletion, Profile, TaskRecurrence } from '../types'
 
 export type TaskDisplayStatus = 'todo' | 'pending' | 'done'
 
+function getDisplayStatus(completion: TaskCompletion | null, recurrence: string): TaskDisplayStatus {
+  if (!completion || recurrence === 'milestone') return 'todo'
+  if (completion.status === 'pending') return 'pending'
+  if (completion.status !== 'approved') return 'todo'
+
+  if (recurrence === 'once') return 'done'
+
+  const submittedAt = new Date(completion.created_at)
+  const now = new Date()
+
+  if (recurrence === 'daily') {
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    return submittedAt >= todayStart ? 'done' : 'todo'
+  }
+
+  if (recurrence === 'weekly') {
+    const day = now.getDay()
+    const daysFromMonday = day === 0 ? 6 : day - 1
+    const weekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysFromMonday)
+    return submittedAt >= weekStart ? 'done' : 'todo'
+  }
+
+  return 'todo'
+}
+
 export interface TaskWithStatus extends Task {
   completion: TaskCompletion | null
   displayStatus: TaskDisplayStatus
@@ -70,11 +95,7 @@ export function useChildTasks(childId: string) {
       const completion = completionMap.get(task.id) ?? null
       const completionCount = approvedCountMap.get(task.id) ?? 0
       const pendingCount = pendingCountMap.get(task.id) ?? 0
-      let displayStatus: TaskDisplayStatus = 'todo'
-      if (task.recurrence !== 'milestone') {
-        if (completion?.status === 'pending') displayStatus = 'pending'
-        else if (completion?.status === 'approved') displayStatus = 'done'
-      }
+      const displayStatus = getDisplayStatus(completion, task.recurrence)
       return { ...task, completion, displayStatus, completionCount, pendingCount }
     })
 
