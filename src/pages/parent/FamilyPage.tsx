@@ -22,6 +22,12 @@ export default function FamilyPage() {
   const [pinTarget, setPinTarget] = useState<Profile | null>(null)
   const [pinSuccessId, setPinSuccessId] = useState<string | null>(null)
 
+  const [showChangePwd, setShowChangePwd] = useState(false)
+  const [pwdForm, setPwdForm] = useState({ oldPwd: '', newPwd: '', confirmPwd: '' })
+  const [pwdError, setPwdError] = useState('')
+  const [pwdSuccess, setPwdSuccess] = useState(false)
+  const [pwdLoading, setPwdLoading] = useState(false)
+
   const fetchFamily = useCallback(async () => {
     if (!profile?.family_id) return
     const [{ data: fam }, { data: kids }] = await Promise.all([
@@ -82,6 +88,40 @@ export default function FamilyPage() {
 
   async function handleSignOut() {
     await supabase.auth.signOut()
+  }
+
+  async function handleChangePwd() {
+    setPwdError('')
+    if (!pwdForm.oldPwd || !pwdForm.newPwd || !pwdForm.confirmPwd) {
+      setPwdError('请填写所有字段')
+      return
+    }
+    if (pwdForm.newPwd.length < 6) {
+      setPwdError('新密码至少 6 位')
+      return
+    }
+    if (pwdForm.newPwd !== pwdForm.confirmPwd) {
+      setPwdError('两次输入的新密码不一致')
+      return
+    }
+    setPwdLoading(true)
+    const session = (await supabase.auth.getSession()).data.session
+    const email = session?.user?.email ?? ''
+    const { error: verifyErr } = await supabase.auth.signInWithPassword({ email, password: pwdForm.oldPwd })
+    if (verifyErr) {
+      setPwdError('当前密码不正确')
+      setPwdLoading(false)
+      return
+    }
+    const { error: updateErr } = await supabase.auth.updateUser({ password: pwdForm.newPwd })
+    if (updateErr) {
+      setPwdError(updateErr.message)
+    } else {
+      setPwdSuccess(true)
+      setPwdForm({ oldPwd: '', newPwd: '', confirmPwd: '' })
+      setTimeout(() => { setShowChangePwd(false); setPwdSuccess(false) }, 1500)
+    }
+    setPwdLoading(false)
   }
 
   return (
@@ -258,6 +298,54 @@ export default function FamilyPage() {
           </div>
         </div>
       )}
+
+      {/* 修改密码 */}
+      <div className="bg-white rounded-[20px] p-5 shadow-sm">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-bold text-slate-500">修改密码</h2>
+          <button
+            onClick={() => { setShowChangePwd(v => !v); setPwdError(''); setPwdSuccess(false) }}
+            className="text-violet-500 text-sm font-bold"
+          >
+            {showChangePwd ? '收起' : '修改'}
+          </button>
+        </div>
+
+        {showChangePwd && (
+          <div className="mt-4 space-y-3">
+            {['oldPwd', 'newPwd', 'confirmPwd'].map((field) => {
+              const labels: Record<string, string> = {
+                oldPwd: '当前密码',
+                newPwd: '新密码（至少 6 位）',
+                confirmPwd: '确认新密码',
+              }
+              return (
+                <div key={field}>
+                  <label className="text-xs text-slate-400 font-bold">{labels[field]}</label>
+                  <input
+                    type="password"
+                    value={pwdForm[field as keyof typeof pwdForm]}
+                    onChange={e => setPwdForm(f => ({ ...f, [field]: e.target.value }))}
+                    className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2 text-sm font-bold outline-none focus:border-violet-400"
+                    autoComplete="new-password"
+                  />
+                </div>
+              )
+            })}
+
+            {pwdError && <p className="text-red-500 text-sm font-bold">{pwdError}</p>}
+            {pwdSuccess && <p className="text-green-500 text-sm font-bold">密码修改成功！</p>}
+
+            <button
+              onClick={handleChangePwd}
+              disabled={pwdLoading}
+              className="w-full bg-violet-500 text-white font-bold rounded-2xl py-3 text-sm disabled:opacity-50"
+            >
+              {pwdLoading ? '提交中…' : '确认修改'}
+            </button>
+          </div>
+        )}
+      </div>
 
       {/* 退出登录 */}
       <button
