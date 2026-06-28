@@ -53,6 +53,7 @@ export function usePendingCompletions(familyId: string) {
   useEffect(() => { fetchCompletions() }, [fetchCompletions])
 
   const approve = async (completionId: string, reviewerId: string) => {
+    const completion = completions.find(c => c.id === completionId)
     const { error } = await supabase
       .from('task_completions')
       .update({
@@ -61,6 +62,9 @@ export function usePendingCompletions(familyId: string) {
         reviewed_at: new Date().toISOString(),
       })
       .eq('id', completionId)
+    if (!error && completion?.task?.recurrence === 'once') {
+      await supabase.from('tasks').update({ status: 'archived' }).eq('id', completion.task.id)
+    }
     if (!error) fetchCompletions()
     return { error }
   }

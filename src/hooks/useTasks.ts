@@ -52,7 +52,7 @@ export function useChildTasks(childId: string) {
     const { data: tasksData } = await supabase
       .from('tasks')
       .select('*')
-      .eq('status', 'active')
+      .in('status', ['active', 'archived'])
       .or(`assigned_to.eq.${childId},assigned_to.is.null`)
       .order('created_at', { ascending: false })
 
@@ -91,13 +91,22 @@ export function useChildTasks(childId: string) {
       }
     })
 
-    const enriched: TaskWithStatus[] = tasksData.map(task => {
-      const completion = completionMap.get(task.id) ?? null
-      const completionCount = approvedCountMap.get(task.id) ?? 0
-      const pendingCount = pendingCountMap.get(task.id) ?? 0
-      const displayStatus = getDisplayStatus(completion, task.recurrence)
-      return { ...task, completion, displayStatus, completionCount, pendingCount }
-    })
+    const enriched: TaskWithStatus[] = tasksData
+      .filter(task => {
+        if (task.status === 'archived') {
+          return (approvedCountMap.get(task.id) ?? 0) > 0
+        }
+        return true
+      })
+      .map(task => {
+        const completion = completionMap.get(task.id) ?? null
+        const completionCount = approvedCountMap.get(task.id) ?? 0
+        const pendingCount = pendingCountMap.get(task.id) ?? 0
+        const displayStatus = task.status === 'archived'
+          ? 'done'
+          : getDisplayStatus(completion, task.recurrence)
+        return { ...task, completion, displayStatus, completionCount, pendingCount }
+      })
 
     setTasks(enriched)
     setMilestoneCompletions(milestoneCompletionsArr)
